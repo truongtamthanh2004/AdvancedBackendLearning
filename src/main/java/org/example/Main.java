@@ -25,6 +25,7 @@ public class Main {
         flightData.put("airline", "Airline X");
         flightData.put("departure", "2025-03-01 10:00");
         flightData.put("destination", "New York");
+        flightData.put("payment", "CASH");
 
         RMap<String, String> seatData = redissonClient.getMap("seat:FA634:A34_S012C");
         seatData.put("bookedBy", "None");
@@ -32,34 +33,38 @@ public class Main {
 
     public boolean bookSeat(String flightId, String seatId) {
         String lockKey = "lock:seat:" + flightId + ":" + seatId;
-        RLock lock = redissonClient.getLock(lockKey);
+        RLock lock = redissonClient.getLock(lockKey); // Write Lock
 
         try {
             if (lock.tryLock(0, 10, TimeUnit.SECONDS)) {
-                try {
-                    System.out.println(Thread.currentThread().getName() + ": Booking seat " + seatId + " on flight " + flightId);
+                System.out.println(Thread.currentThread().getName() + ": Booking seat " + seatId + " on flight " + flightId);
 
-                    RMap<String, String> flightData = redissonClient.getMap("flight:" + flightId);
+                RMap<String, String> flightData = redissonClient.getMap("flight:" + flightId);
 
-                    System.out.println("Airline: " + flightData.get("airline"));
-                    System.out.println("Destination: " + flightData.get("destination"));
-                    System.out.println("Departure: " + flightData.get("departure"));
+                System.out.println("Airline: " + flightData.get("airline"));
+                System.out.println("Destination: " + flightData.get("destination"));
+                System.out.println("Departure: " + flightData.get("departure"));
 
-                    RMap<String, String> seatData = redissonClient.getMap("seat:" + flightId + ":" + seatId);
-                    if ("None".equals(seatData.get("bookedBy"))) {
-                        seatData.put("bookedBy", "Thanh Truong");
-                    }
-                    else {
-                        System.out.println(Thread.currentThread().getName() + ": Seat " + seatId + " is already booked.");
-                        return false;
-                    }
 
-                    Thread.sleep(3000);
-                    System.out.println(Thread.currentThread().getName() + ": Booking confirmed!");
-                    return true;
-                } finally {
+                RMap<String, String> seatData = redissonClient.getMap("seat:" + flightId + ":" + seatId);
+                if (!"None".equals(seatData.get("bookedBy"))) {
+                    System.out.println(Thread.currentThread().getName() + ": Seat " + seatId + " is already booked.");
                     lock.unlock();
+                    return false;
                 }
+
+                seatData.put("bookedBy", "Thanh Truong");
+
+                // Use factory to get the correct payment instance
+                String paymentMethod = flightData.get("payment");
+                Payment payment = PaymentFactory.createPayment(paymentMethod);
+
+                // Execute payment process
+                payment.excecute();
+                Thread.sleep(3000);
+                System.out.println(Thread.currentThread().getName() + ": Booking confirmed!");
+                lock.unlock();
+                return true;
             } else {
                 System.out.println(Thread.currentThread().getName() + ": Seat " + seatId + " is already being booked. Try again later.");
                 return false;
